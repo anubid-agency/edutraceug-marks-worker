@@ -1,0 +1,3 @@
+name = "edutraceug-marks-worker"
+main = "edutraceug-marks-worker.js"
+compatibility_date = "2025-01-01"

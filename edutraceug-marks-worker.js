@@ -673,7 +673,13 @@ async function requirePermission(env, schoolId, uid, key) {
 }
 
 function assignmentCovers(teacher, className, stream, subject) {
-  return true;
+  const list = Array.isArray(teacher.assignments) ? teacher.assignments : [];
+  const norm = (v) => String(v || "").trim().toLowerCase();
+  return list.some((a) =>
+    a && norm(a.class) === norm(className) &&
+    (!a.stream || norm(a.stream) === norm(stream)) &&
+    norm(a.subject) === norm(subject)
+  );
 }
 
 function classTeacherCovers(teacher, className, stream) {
@@ -1169,10 +1175,17 @@ async function handleDeleteMark(request, env, schoolId, markId) {
 // ================================================================
 
 async function handleDownloadTemplate(request, env, schoolId, url) {
-  await requireUser(request, env, schoolId, ["schoolAdmin", "teacher"]);
+    const user = await requireUser(request, env, schoolId, ["schoolAdmin", "teacher"]);
   const className = cleanText(url.searchParams.get("class") || "", 60, "class");
   const stream = url.searchParams.get("stream") ? cleanText(url.searchParams.get("stream"), 60, "stream") : "";
   const subject = cleanText(url.searchParams.get("subject") || "", 120, "subject");
+
+  if (user.role === "teacher") {
+    const t = await requirePermission(env, schoolId, String(user.sub), "canEnterMarks");
+    if (!assignmentCovers(t, className, stream, subject)) {
+      throw new HttpError(403, "You are not assigned to this class/stream/subject");
+    }
+  }
 
   const [types, scoring] = await Promise.all([
     listAssessmentTypes(env, schoolId),

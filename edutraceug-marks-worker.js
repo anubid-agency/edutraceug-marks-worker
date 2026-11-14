@@ -1995,7 +1995,7 @@ async function buildStudentReport(env, schoolId, rosterId, termId, { includeRank
     rollup: report.rollup,
     rank,
     hold,
-    note: note ? { comment: note.comment || "", conduct: note.conduct || "" } : null,
+    note: note ? { comment: note.comment || "", conduct: note.conduct || "", headComment: note.headComment || "", additionalComment: note.additionalComment || "" } : null,
     gradingScale: scoring.mode === "percentage" ? scale : null,
   };
 }
@@ -2227,6 +2227,8 @@ function renderPercentageReportHtml({ report, school }) {
     ${rankHtml || `<div><label>Subjects</label><strong>${report.subjects.length}</strong></div>`}
   </div>
   <div class="comment-box"><h3>Class Teacher's Comment</h3>${conductHtml}<p>${escapeHtml(note.comment || "") || "&nbsp;"}</p></div>
+  <div class="comment-box"><h3>Head Teacher's Comment</h3><p>${escapeHtml(note.headComment || "") || "&nbsp;"}</p></div>
+  <div class="comment-box"><h3>Additional Comment</h3><p>${escapeHtml(note.additionalComment || "") || "&nbsp;"}</p></div>
   <div class="signature">
     <div><div class="line"></div><label>Class Teacher</label></div>
     <div><div class="line"></div><label>Head Teacher</label></div>
@@ -2335,6 +2337,8 @@ function renderCbcReportHtml({ report, school }) {
   <div class="legend"><b>Levels:</b> ${legendHtml}</div>
   <div class="summary">${rollupHtml || `<div><label>Subjects</label><strong>0</strong></div>`}</div>
   <div class="comment-box"><h3>Class Teacher's Comment</h3>${conductHtml}<p>${escapeHtml(note.comment || "") || "&nbsp;"}</p></div>
+  <div class="comment-box"><h3>Head Teacher's Comment</h3><p>${escapeHtml(note.headComment || "") || "&nbsp;"}</p></div>
+  <div class="comment-box"><h3>Additional Comment</h3><p>${escapeHtml(note.additionalComment || "") || "&nbsp;"}</p></div>
   <div class="signature">
     <div><div class="line"></div><label>Class Teacher</label></div>
     <div><div class="line"></div><label>Head Teacher</label></div>
@@ -2411,17 +2415,27 @@ async function handleSetNote(request, env, schoolId) {
     if (!classTeacherCovers(t, student.class, student.stream || "")) throw new HttpError(403, "Only the class teacher can write this note");
   }
 
-  const comment = cleanOptionalText(body.comment, 2000, "comment");
-  const conduct = cleanOptionalText(body.conduct, 200, "conduct");
+const hasComment = Object.prototype.hasOwnProperty.call(body, "comment");
+const hasConduct = Object.prototype.hasOwnProperty.call(body, "conduct");
+  const hasHead = Object.prototype.hasOwnProperty.call(body, "headComment");
+  if (hasHead && user.role !== "schoolAdmin") {
+    throw new HttpError(403, "Only the school admin can write the headteacher comment");
+  }
 
   const id = `${termId}_${rosterId}`;
   const data = {
     termId, rosterId,
     class: student.class || "", stream: student.stream || "",
-    comment, conduct,
+    
     updatedAt: new Date().toISOString(),
     updatedBy: String(user.sub),
   };
+  if (hasComment) data.comment = cleanOptionalText(body.comment, 2000, "comment");
+if (hasConduct) data.conduct = cleanOptionalText(body.conduct, 200, "conduct");
+  if (hasHead) data.headComment = cleanOptionalText(body.headComment, 2000, "headComment");
+  if (Object.prototype.hasOwnProperty.call(body, "additionalComment")) {
+    data.additionalComment = cleanOptionalText(body.additionalComment, 2000, "additionalComment");
+  }
   await fsPatch(env, `schools/${enc(schoolId)}/reportNotes/${enc(id)}`, data);
   await logChange(env, schoolId, { action: "report.note.set", by: String(user.sub), termId, rosterId });
   return { status: "ok", note: data };
@@ -2612,4 +2626,3 @@ export default {
     }
   },
 };
-

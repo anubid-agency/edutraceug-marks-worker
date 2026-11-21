@@ -1277,6 +1277,7 @@ async function recomputeTermSummariesForClass(env, schoolId, { termId, className
   const scored = [];
   for (const s of students) {
     const list = byRoster.get(s.id) || [];
+    if (list.length === 0) continue;
     let overallPct = null;
     let principalPoints = 0, subsidiaryPoints = 0;
     if (schoolSettings.scoringMode === "cbc") {
@@ -2054,23 +2055,27 @@ async function handleGetClassReport(request, env, schoolId, url) {
   const publishPosition = schoolSettings.publishPosition && termPublishRank(term);
 
   const rosterIds = students.map((s) => s.id);
-  const summaries = rosterIds.length
-    ? await d1All(
-        env,
-        `SELECT * FROM term_summaries WHERE school_id = ? AND term_id = ? AND roster_id IN (${rosterIds.map(() => "?").join(",")})`,
-        schoolId, termId, ...rosterIds
-      )
-    : [];
-  const byRoster = new Map(summaries.map((r) => [r.roster_id, r]));
+  const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
 
-  const subjectRows = rosterIds.length
-    ? await d1All(
-        env,
-        `SELECT roster_id, subject, pct, grade, points, level, is_subsidiary FROM subject_summaries
-         WHERE school_id = ? AND term_id = ? AND roster_id IN (${rosterIds.map(() => "?").join(",")})`,
-        schoolId, termId, ...rosterIds
-      )
-    : [];
+  const summaries = [];
+  const subjectRows = [];
+  for (const ids of chunk(rosterIds, 90)) {
+    const ph = ids.map(() => "?").join(",");
+    const t = await d1All(
+      env,
+      `SELECT * FROM term_summaries WHERE school_id = ? AND term_id = ? AND roster_id IN (${ph})`,
+      schoolId, termId, ...ids
+    );
+    for (const r of t) summaries.push(r);
+    const s = await d1All(
+      env,
+      `SELECT roster_id, subject, pct, grade, points, level, is_subsidiary FROM subject_summaries
+       WHERE school_id = ? AND term_id = ? AND roster_id IN (${ph})`,
+      schoolId, termId, ...ids
+    );
+    for (const r of s) subjectRows.push(r);
+  }
+  const byRoster = new Map(summaries.map((r) => [r.roster_id, r]));
   const subjectsByRoster = new Map();
   for (const r of subjectRows) {
     if (!subjectsByRoster.has(r.roster_id)) subjectsByRoster.set(r.roster_id, []);

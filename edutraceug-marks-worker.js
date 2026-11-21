@@ -1090,20 +1090,18 @@ async function handlePutGrid(request, env, schoolId) {
     affectedRoster.add(rosterId);
   }
 
-  // Recompute summaries for the affected roster in the same batch.
+  await runBatch(env, stmts);
+
   const summaryStmts = await buildSummariesBatch(env, schoolId, {
     termId, className, stream, subject, typeId,
     rosterIds: Array.from(affectedRoster), schoolSettings, nowIso, uid, types,
   });
-  for (const s of summaryStmts) stmts.push(s);
-
-  stmts.push(auditStmt(schoolId, {
+  summaryStmts.push(auditStmt(schoolId, {
     action: "marks.grid.write",
     by: uid, termId, class: className, stream, subject, typeId,
     count: body.entries.length, entries: auditRows,
   }));
-
-  await runBatch(env, stmts);
+  await runBatch(env, summaryStmts);
   return { status: "ok", updated: body.entries.length, termId, class: className, stream, subject, typeId };
 }
 
@@ -1121,16 +1119,16 @@ async function handleDeleteMark(request, env, schoolId, markId) {
   const nowIso = new Date().toISOString();
   const uid = String(user.sub);
 
-  const stmts = [
+  await runBatch(env, [
     { sql: `DELETE FROM marks WHERE school_id = ? AND id = ?`, params: [schoolId, markId] },
-  ];
+  ]);
+  const types = await listAssessmentTypes(env, schoolId, { includeArchived: true });
   const summaryStmts = await buildSummariesBatch(env, schoolId, {
     termId: doc.term_id, className: doc.class_name, stream: doc.stream || "", subject: doc.subject, typeId: doc.type_id,
-    rosterIds: [doc.roster_id], schoolSettings, nowIso, uid,
+    rosterIds: [doc.roster_id], schoolSettings, nowIso, uid, types,
   });
-  for (const s of summaryStmts) stmts.push(s);
-  stmts.push(auditStmt(schoolId, { action: "marks.cell.delete", by: uid, rosterId: doc.roster_id, termId: doc.term_id }));
-  await runBatch(env, stmts);
+  summaryStmts.push(auditStmt(schoolId, { action: "marks.cell.delete", by: uid, rosterId: doc.roster_id, termId: doc.term_id }));
+  await runBatch(env, summaryStmts);
   return { status: "ok" };
 }
 
@@ -1568,17 +1566,16 @@ async function writeParsedMarks(env, schoolId, ctx) {
     }
   }
 
+  await runBatch(env, stmts);
+
   const types = ctx.types || await listAssessmentTypes(env, schoolId, { includeArchived: true });
   const summaryStmts = await buildSummariesBatch(env, schoolId, {
     termId, className, stream, subject, rosterIds: Array.from(affectedRoster), schoolSettings, nowIso, uid, types,
   });
-  for (const s of summaryStmts) stmts.push(s);
-
-  stmts.push(auditStmt(schoolId, {
+  summaryStmts.push(auditStmt(schoolId, {
     action: "marks.excel.write", by: uid, termId, class: className, stream, subject, count: written, cloudinaryUrl,
   }));
-
-  await runBatch(env, stmts);
+  await runBatch(env, summaryStmts);
   return { written, studentsAffected: matched.length };
 }
 
@@ -2575,6 +2572,45 @@ async function handleGetAuditLog(request, env, schoolId, url) {
 }
 
 // ================================================================
+// One-time summary rebuild
+// ================================================================
+
+async function handleRebuildSummaries(request, env, schoolId) {
+  const user = await requireUser(request, env, schoolId, ["schoolAdmin"]);
+  const uid = String(user.sub);
+  const nowIso = new Date().toISOString();
+  const schoolSettings = await getSchoolSettings(env, schoolId);
+  const types = await listAssessmentTypes(env, schoolId, { includeArchived: true });
+
+  const groups = await d1All(
+    env,
+    `SELECT DISTINCT term_id, class_name, stream, subject FROM marks WHERE school_id = ?`,
+    schoolId
+  );
+  let sheets = 0;
+  const classKeys = new Map();
+  for (const g of groups) {
+    const rs = await d1All(
+      env,
+      `SELECT DISTINCT roster_id FROM marks WHERE school_id = ? AND term_id = ? AND class_name = ? AND subject = ?`,
+      schoolId, g.term_id, g.class_name, g.subject
+    );
+    const stmts = await buildSummariesBatch(env, schoolId, {
+      termId: g.term_id, className: g.class_name, stream: g.stream || "", subject: g.subject,
+      rosterIds: rs.map((r) => r.roster_id), schoolSettings, nowIso, uid, types,
+    });
+    await runBatch(env, stmts);
+    classKeys.set(`${g.term_id}|${g.class_name}`, { termId: g.term_id, className: g.class_name });
+    sheets += 1;
+  }
+  for (const k of classKeys.values()) {
+    const stmts = await recomputeTermSummariesForClass(env, schoolId, { termId: k.termId, className: k.className, schoolSettings, nowIso });
+    await runBatch(env, stmts);
+  }
+  return { status: "ok", subjectGroups: sheets, classes: classKeys.size };
+}
+
+// ================================================================
 // Router
 // ================================================================
 
@@ -2630,6 +2666,9 @@ async function handle(request, env) {
     if (method === "GET" && (m = path.match(new RegExp(`^/schools/${S}/holds$`)))) return json(await handleListHolds(request, env, d(m[1]), url));
     if (method === "POST" && (m = path.match(new RegExp(`^/schools/${S}/holds$`)))) return json(await handleCreateHold(request, env, d(m[1])));
     if (method === "DELETE" && (m = path.match(new RegExp(`^/schools/${S}/holds/${S}$`)))) return json(await handleDeleteHold(request, env, d(m[1]), d(m[2])));
+
+    // Rebuild
+    if (method === "POST" && (m = path.match(new RegExp(`^/schools/${S}/rebuild-summaries$`)))) return json(await handleRebuildSummaries(request, env, d(m[1])));
 
     // Audit
     if (method === "GET" && (m = path.match(new RegExp(`^/schools/${S}/audit$`)))) return json(await handleGetAuditLog(request, env, d(m[1]), url));

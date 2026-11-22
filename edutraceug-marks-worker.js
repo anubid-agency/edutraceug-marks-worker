@@ -1,5 +1,5 @@
-// edutraceug-marks-worker (D1) 
-//play
+// edutraceug-marks-worker (D1)
+//
 // Records assessment marks, computes term reports, generates printable report cards.
 // Uses Cloudflare D1 (binding: DB) for all storage. Firebase ID token verification unchanged.
 //
@@ -571,13 +571,16 @@ function gradeFromPct(pct, pointsBands) {
   return null;
 }
 
-function principalPointsForSubject(pct, subject, pointsBands) {
+
+function principalPointsForSubject(pct, subject) {
   if (pct === null || pct === undefined || !Number.isFinite(pct)) return 0;
   if (isSubsidiarySubject(subject)) return 0;
-  const grade = gradeFromPct(pct, pointsBands);
-  return grade && grade in PRINCIPAL_POINTS ? PRINCIPAL_POINTS[grade] : 0;
+  if (pct >= 80) return 5;
+  if (pct >= 70) return 4;
+  if (pct >= 60) return 3;
+  if (pct >= 50) return 2;
+  return 1;
 }
-
 function subsidiaryPointsForSubject(pct, subject, passMark) {
   if (pct === null || pct === undefined || !Number.isFinite(pct)) return 0;
   if (!isSubsidiarySubject(subject)) return 0;
@@ -2696,5 +2699,3 @@ export default {
     }
   },
 };
-
-

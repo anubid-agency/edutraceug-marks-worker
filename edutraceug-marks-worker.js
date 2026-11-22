@@ -1081,7 +1081,7 @@ async function handlePutGrid(request, env, schoolId) {
     stmts.push({
       sql: `INSERT INTO marks (school_id, id, term_id, roster_id, class_name, stream, subject, type_id, scoring_mode, status, score, level, max_score, source, cloudinary_url, entered_by, entered_at, updated_by, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
+            ON CONFLICT(school_id, id) DO UPDATE SET
               status = excluded.status, score = excluded.score, level = excluded.level, max_score = excluded.max_score,
               updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
       params: [
@@ -1557,7 +1557,7 @@ async function writeParsedMarks(env, schoolId, ctx) {
       stmts.push({
         sql: `INSERT INTO marks (school_id, id, term_id, roster_id, class_name, stream, subject, type_id, scoring_mode, status, score, level, max_score, source, cloudinary_url, entered_by, entered_at, updated_by, updated_at)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'excel', ?, ?, ?, ?, ?)
-              ON CONFLICT(id) DO UPDATE SET
+              ON CONFLICT(school_id, id) DO UPDATE SET
                 status = excluded.status, score = excluded.score, level = excluded.level, max_score = excluded.max_score,
                 source = excluded.source, cloudinary_url = excluded.cloudinary_url,
                 updated_by = excluded.updated_by, updated_at = excluded.updated_at`,

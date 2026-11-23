@@ -1080,7 +1080,7 @@ async function handlePutGrid(request, env, schoolId) {
     const markId = await computeMarkId(termId, rosterId, subject, typeId);
     stmts.push({
       sql: `INSERT INTO marks (school_id, id, term_id, roster_id, class_name, stream, subject, type_id, scoring_mode, status, score, level, max_score, source, cloudinary_url, entered_by, entered_at, updated_by, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'grid', NULL, ?, ?, ?, ?)
             ON CONFLICT(school_id, id) DO UPDATE SET
               status = excluded.status, score = excluded.score, level = excluded.level, max_score = excluded.max_score,
               updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
